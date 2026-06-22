@@ -32,14 +32,14 @@ const upload = multer({ storage: storage });
 router.get('/', productLimiter, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 20; // Loads 20 at a time
     const offset = (page - 1) * limit;
 
     res.set('Cache-Control', 'public, max-age=300');
     
-    // Included is_hero in the query
+    // Select items including features and specs
     const [rows] = await pool.query(
-      'SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      'SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?',
       [limit, offset]
     );
     
@@ -48,7 +48,6 @@ router.get('/', productLimiter, async (req, res) => {
 
     const products = rows.map(p => ({
       ...p,
-      // Boolean conversion for frontend ease
       is_hero: !!p.is_hero,
       features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
       specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
