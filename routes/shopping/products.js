@@ -28,18 +28,30 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// 1. GET ALL PRODUCTS (Updated to include is_hero)
+// 1. GET ALL PRODUCTS (Updated to sort Console first, Accessories second, and First-to-Last)
 router.get('/', productLimiter, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20; // Loads 20 at a time
+    const limit = parseInt(req.query.limit) || 100; // Loads 20 at a time
     const offset = (page - 1) * limit;
 
     res.set('Cache-Control', 'public, max-age=300');
     
-    // Select items including features and specs
+    // SQL Order Logic:
+    // 1. If category is 'Console', it gets highest priority.
+    // 2. If category is 'Accessories', it gets second priority.
+    // 3. Everything else follows, sorted from oldest to newest (created_at ASC).
     const [rows] = await pool.query(
-      'SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      `SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs 
+       FROM products 
+       ORDER BY 
+         CASE 
+           WHEN category = 'Console' THEN 1
+           WHEN category = 'Accessories' THEN 2
+           ELSE 3
+         END ASC,
+         created_at ASC 
+       LIMIT ? OFFSET ?`,
       [limit, offset]
     );
     
