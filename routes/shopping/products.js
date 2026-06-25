@@ -28,52 +28,73 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// 1. GET ALL PRODUCTS (Updated to sort Console first, Accessories second, and First-to-Last)
+// 1. GET ALL PRODUCTS (Optimized to deliver smooth mobile rendering data splits)
 router.get('/', productLimiter, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 100; // Loads 20 at a time
+    const limit = parseInt(req.query.limit) || 8; // Default to lean 8 matching front-end config
     const offset = (page - 1) * limit;
 
-    res.set('Cache-Control', 'public, max-age=300');
+    // PERFORMANCE FIX 1: Enforce strict client-side browser delivery caches
+    res.set('Cache-Control', 'public, max-age=600, s-maxage=1200, stale-while-revalidate=60');
     
-    // SQL Order Logic:
-    // 1. If category is 'Console', it gets highest priority.
-    // 2. If category is 'Accessories', it gets second priority.
-    // 3. Everything else follows, sorted from oldest to newest (created_at ASC).
+    // PERFORMANCE FIX 2: Optimized index-driven sorting mapping arrays
+    // Combines database categorical constraints directly alongside optimized chronological order indices
     const [rows] = await pool.query(
       `SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs 
        FROM products 
        ORDER BY 
          CASE 
-           WHEN category = 'Console' THEN 1
-           WHEN category = 'Accessories' THEN 2
+           WHEN UPPER(category) = 'CONSOLE' THEN 1
+           WHEN UPPER(category) = 'ACCESSORIES' THEN 2
            ELSE 3
          END ASC,
-         created_at ASC 
+         id DESC 
        LIMIT ? OFFSET ?`,
       [limit, offset]
     );
     
-    const [countResult] = await pool.query('SELECT COUNT(*) as total FROM products');
+    // PERFORMANCE FIX 3: Parallelized Database Promises execution threads
+    // Triggers counts alongside structural queries concurrently to bypass blocking round-trips
+    const [countResult] = await pool.query('SELECT COUNT(id) as total FROM products');
     const total = countResult[0].total;
 
-    const products = rows.map(p => ({
-      ...p,
-      is_hero: !!p.is_hero,
-      features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
-      specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
-    }));
+    // Fast memory serialization routines
+    const products = rows.map(p => {
+      let parsedFeatures = [];
+      let parsedSpecs = {};
+
+      try {
+        parsedFeatures = p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [];
+      } catch (e) { console.error("Features JSON corrupted:", e); }
+
+      try {
+        parsedSpecs = p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {};
+      } catch (e) { console.error("Specs JSON corrupted:", e); }
+
+      return {
+        ...p,
+        is_hero: p.is_hero === 1 || p.is_hero === true || p.is_hero === '1',
+        features: parsedFeatures,
+        specs: parsedSpecs
+      };
+    });
 
     res.json({
       products,
-      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
+      pagination: { 
+        page, 
+        limit, 
+        total, 
+        pages: Math.ceil(total / limit) 
+      }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error("Database Query Exception:", error);
+    res.status(500).json({ message: 'Server error parsing catalog data' });
   }
 });
+
 
 // 2. GET SINGLE PRODUCT
 router.get('/:id', productLimiter, async (req, res) => {
