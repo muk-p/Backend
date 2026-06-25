@@ -109,11 +109,14 @@ router.get('/:id', productLimiter, async (req, res) => {
     const product = {
       ...p,
       is_hero: !!p.is_hero,
+      // Safe fallback checks ensure empty structures don't break string parsing routines
       features: typeof p.features === 'string' ? JSON.parse(p.features || '[]') : (p.features || []),
       specs: typeof p.specs === 'string' ? JSON.parse(p.specs || '{}') : (p.specs || {})
     };
     
-    res.json(product);
+    // BACKEND SYNC FIX: Explicitly bundle the item inside a 'product' key payload 
+    // to match what your Next.js administration panel looks for.
+    res.json({ product });
   } catch (error) {
     console.error("Fetch Error:", error);
     res.status(500).json({ message: 'Server error' });
