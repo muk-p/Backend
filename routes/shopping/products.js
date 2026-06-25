@@ -31,12 +31,11 @@ const upload = multer({ storage: storage });
 // 1. GROUPED CATEGORY ROUTE (Optimized for instantaneous mobile rendering)
 router.get('/', productLimiter, async (req, res) => {
   try {
-    // We increase the limit safely here because grouped sorting happens lightning-fast via database indices
-    const limit = 40; 
+    const limit = 80; // High safe threshold since indexation handles structure calculations
 
     res.set('Cache-Control', 'public, max-age=600, s-maxage=1200, stale-while-revalidate=60');
     
-    // SQL groupings ensure Consoles and Accessories arrive sequentially, with ID 1 forced first
+    // SQL ORDER ENGINE:
     const [rows] = await pool.query(
       `SELECT id, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs 
        FROM products 
@@ -44,15 +43,21 @@ router.get('/', productLimiter, async (req, res) => {
          CASE 
            WHEN UPPER(category) = 'CONSOLE' THEN 1
            WHEN UPPER(category) = 'ACCESSORIES' THEN 2
-           ELSE 3
+           WHEN UPPER(category) = 'PHONES' THEN 3
+           WHEN UPPER(category) = 'TVS' THEN 4
+           WHEN UPPER(category) = 'DIGITAL' THEN 5
+           WHEN UPPER(category) = 'PRE-OWNED' THEN 6
+           WHEN UPPER(category) = 'VR GEAR' THEN 7
+           WHEN UPPER(category) = 'MERCH' THEN 8
+           ELSE 9
          END ASC,
          CASE WHEN id = 1 THEN 0 ELSE 1 END ASC,
-         id DESC
+         id ASC
        LIMIT ?`,
       [limit]
     );
 
-    // Group the products by category directly on the server
+    // Group items natively directly on database execution response threads
     const groupedProducts = rows.reduce((acc, p) => {
       const category = p.category || "Uncategorized";
       if (!acc[category]) acc[category] = [];
@@ -66,15 +71,15 @@ router.get('/', productLimiter, async (req, res) => {
       return acc;
     }, {});
 
-    // Send down clean pre-sorted category entries
     res.json({
       catalog: Object.entries(groupedProducts)
     });
   } catch (error) {
-    console.error("Grouped Database Query Exception:", error);
-    res.status(500).json({ message: 'Server error parsing grouped catalog data' });
+    console.error("Grouped Catalog Query Error:", error);
+    res.status(500).json({ message: 'Server data mapping layout synchronization error' });
   }
 });
+
 
 // NEW DEDICATED HERO ROUTE - Fast and lightweight
 router.get('/hero-offers', async (req, res) => {
