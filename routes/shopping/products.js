@@ -76,6 +76,22 @@ router.get('/', productLimiter, async (req, res) => {
   }
 });
 
+// NEW DEDICATED HERO ROUTE - Fast and lightweight
+router.get('/hero-offers', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=1800'); // Cache for 30 minutes since hero items rarely change
+    const [rows] = await pool.query(
+      `SELECT id, name, price, old_price, image_url, is_hero 
+       FROM products 
+       WHERE is_hero = 1 
+       ORDER BY id DESC`
+    );
+    res.json({ products: rows });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error fetching hero banners' });
+  }
+});
+
 // 2. GET SINGLE PRODUCT
 router.get('/:id', productLimiter, async (req, res) => {
   try {
