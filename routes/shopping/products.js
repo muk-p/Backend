@@ -291,3 +291,5 @@ router.route('/:slug')
       return res.status(500).json({ message: 'Delete execution pipeline failure' });
     }
   });
+
+module.exports = router;
