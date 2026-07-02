@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS products (
 -- 4. DIGITAL PRODUCTS (Master Definitions for Game Codes/UC/Diamonds)
 CREATE TABLE IF NOT EXISTS gaming_codes (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  slug VARCHAR(255) NULL,
   name VARCHAR(200) NOT NULL,
   price DECIMAL(10,2) NOT NULL,
   region VARCHAR(50) DEFAULT 'Global',
@@ -47,6 +48,8 @@ CREATE TABLE IF NOT EXISTS gaming_codes (
   description TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX idx_gaming_codes_slug ON gaming_codes(slug);
 
 -- 5. INDIVIDUAL GAMING CODES INVENTORY (The actual keys sold to users)
 CREATE TABLE IF NOT EXISTS gaming_code_inventory (

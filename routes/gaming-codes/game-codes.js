@@ -4,6 +4,40 @@ const pool = require('../../db');
 const auth = require('../../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
+const slugify = (text = '') => String(text).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-+/g, '-');
+
+const getGamingCodeByIdentifier = async (identifier) => {
+  const numericId = /^\d+$/.test(String(identifier || '').trim()) ? parseInt(String(identifier).trim(), 10) : null;
+  const [rows] = await pool.query(`
+    SELECT id, slug, name, price, region, platform, description, created_at
+    FROM gaming_codes
+    WHERE slug = ? OR id = ?
+    LIMIT 1
+  `, [String(identifier || '').trim(), numericId]);
+
+  return rows[0] || null;
+};
+
+const ensureUniqueSlug = async (name, currentId = null) => {
+  const baseSlug = slugify(name) || 'gaming-code';
+  let slug = baseSlug;
+  let counter = 1;
+
+  while (true) {
+    const [rows] = await pool.query(
+      'SELECT id FROM gaming_codes WHERE slug = ? AND id != ?',
+      [slug, currentId || 0]
+    );
+
+    if (!rows.length) {
+      return slug;
+    }
+
+    slug = `${baseSlug}-${counter}`;
+    counter += 1;
+  }
+};
+
 // 1. GET ALL gaming codes with stock calculated from inventory
 router.get('/', async (req, res) => {
   try {
@@ -15,6 +49,7 @@ router.get('/', async (req, res) => {
     let query = `
       SELECT
         gc.id,
+        gc.slug,
         gc.name,
         gc.price,
         gc.region,
@@ -27,7 +62,7 @@ router.get('/', async (req, res) => {
       WHERE 1=1
     `;
     const params = [];
-    const groupBy = ' GROUP BY gc.id, gc.name, gc.price, gc.region, gc.platform, gc.description, gc.created_at';
+    const groupBy = ' GROUP BY gc.id, gc.slug, gc.name, gc.price, gc.region, gc.platform, gc.description, gc.created_at';
 
     // Add filters if provided
     if (platform) {
@@ -54,18 +89,16 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 5. GET SINGLE gaming code by ID
-router.get('/:id', async (req, res) => {
+// 5. GET SINGLE gaming code by slug or id
+router.get('/:identifier', async (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (isNaN(id) || id <= 0) {
-      return res.status(400).json({ message: 'Invalid gaming code ID' });
-    }
+    const { identifier } = req.params;
+    const numericId = /^\d+$/.test(String(identifier || '').trim()) ? parseInt(String(identifier).trim(), 10) : null;
 
     const [rows] = await pool.query(`
       SELECT
         gc.id,
+        gc.slug,
         gc.name,
         gc.price,
         gc.region,
@@ -75,9 +108,9 @@ router.get('/:id', async (req, res) => {
         COUNT(CASE WHEN gci.status = 'available' THEN 1 END) as stock
       FROM gaming_codes gc
       LEFT JOIN gaming_code_inventory gci ON gc.id = gci.gaming_code_id
-      WHERE gc.id = ?
-      GROUP BY gc.id, gc.name, gc.price, gc.region, gc.platform, gc.description, gc.created_at
-    `, [id]);
+      WHERE gc.slug = ? OR gc.id = ?
+      GROUP BY gc.id, gc.slug, gc.name, gc.price, gc.region, gc.platform, gc.description, gc.created_at
+    `, [String(identifier || '').trim(), numericId]);
 
     if (!rows.length) {
       return res.status(404).json({ message: 'Gaming code not found' });
@@ -113,14 +146,15 @@ router.post(
     const { name, price, region, platform, description } = req.body;
 
     try {
+      const slug = await ensureUniqueSlug(name);
       const [result] = await pool.query(
-        'INSERT INTO gaming_codes (name, price, region, platform, description) VALUES (?, ?, ?, ?, ?)',
-        [name, parseFloat(price), region || 'Global', platform || 'Mobile', description || null]
+        'INSERT INTO gaming_codes (slug, name, price, region, platform, description) VALUES (?, ?, ?, ?, ?, ?)',
+        [slug, name, parseFloat(price), region || 'Global', platform || 'Mobile', description || null]
       );
 
       // Return the created record with calculated stock (0 initially)
       const [newRecord] = await pool.query(
-        'SELECT id, name, price, region, platform, description, created_at FROM gaming_codes WHERE id = ?',
+        'SELECT id, slug, name, price, region, platform, description, created_at FROM gaming_codes WHERE id = ?',
         [result.insertId]
       );
 
@@ -140,7 +174,7 @@ router.post(
 
 // 6. UPDATE gaming code (Manager only)
 router.put(
-  '/:id',
+  '/:identifier',
   auth,
   [
     body('name').optional().trim().isLength({ min: 1, max: 200 }).withMessage('Name must be 1-200 chars'),
@@ -159,26 +193,44 @@ router.put(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { id } = req.params;
+    const { identifier } = req.params;
     const updates = req.body;
     const fields = [];
     const values = [];
 
-    // Schema-compliant allowed fields
-    const allowedFields = ['name', 'price', 'region', 'platform', 'description'];
+    const existingCode = await getGamingCodeByIdentifier(identifier);
+    if (!existingCode) {
+      return res.status(404).json({ message: 'Gaming code not found' });
+    }
 
-    allowedFields.forEach(field => {
-      if (updates.hasOwnProperty(field)) {
-        fields.push(`${field} = ?`);
-        values.push(field === 'price' ? parseFloat(updates[field]) : updates[field]);
+    // Schema-compliant allowed fields
+    const allowedFields = ['name', 'price', 'region', 'platform', 'description', 'slug'];
+
+    for (const field of allowedFields) {
+      if (!Object.prototype.hasOwnProperty.call(updates, field)) {
+        continue;
       }
-    });
+
+      if (field === 'price') {
+        fields.push('price = ?');
+        values.push(parseFloat(updates[field]));
+      } else if (field === 'slug') {
+        if (updates[field]) {
+          const nextSlug = await ensureUniqueSlug(updates[field], existingCode.id);
+          fields.push('slug = ?');
+          values.push(nextSlug);
+        }
+      } else {
+        fields.push(`${field} = ?`);
+        values.push(updates[field]);
+      }
+    }
 
     if (!fields.length) {
       return res.status(400).json({ message: 'No valid fields provided for update' });
     }
 
-    values.push(id);
+    values.push(existingCode.id);
 
     try {
       const [result] = await pool.query(
@@ -192,8 +244,8 @@ router.put(
 
       // Return updated record
       const [rows] = await pool.query(
-        'SELECT id, name, price, region, platform, description, created_at FROM gaming_codes WHERE id = ?',
-        [id]
+        'SELECT id, slug, name, price, region, platform, description, created_at FROM gaming_codes WHERE id = ?',
+        [existingCode.id]
       );
       res.json(rows[0]);
     } catch (error) {
@@ -204,20 +256,20 @@ router.put(
 );
 
 // 7. DELETE gaming code (Manager only)
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:identifier', auth, async (req, res) => {
   if (!req.user || req.user.role !== 'manager') {
     return res.status(403).json({ message: 'Only managers can delete gaming codes' });
   }
 
-  const { id } = req.params;
+  const { identifier } = req.params;
+  const gamingCode = await getGamingCodeByIdentifier(identifier);
 
-  // Validate ID is a number
-  if (isNaN(id) || id <= 0) {
-    return res.status(400).json({ message: 'Invalid gaming code ID' });
+  if (!gamingCode) {
+    return res.status(404).json({ message: 'Gaming code not found' });
   }
 
   try {
-    const [result] = await pool.query('DELETE FROM gaming_codes WHERE id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM gaming_codes WHERE id = ?', [gamingCode.id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Gaming code not found' });
     }
@@ -233,7 +285,7 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 // 8. ADD CODES TO INVENTORY (Manager only)
-router.post('/:id/inventory', auth, [
+router.post('/:identifier/inventory', auth, [
   body('codes').isArray({ min: 1 }).withMessage('At least one code required'),
   body('codes.*').isLength({ min: 1, max: 255 }).withMessage('Each code must be 1-255 characters')
 ], async (req, res) => {
@@ -244,12 +296,12 @@ router.post('/:id/inventory', auth, [
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { id } = req.params;
+  const { identifier } = req.params;
   const { codes } = req.body;
 
-  // Validate gaming code exists
-  if (isNaN(id) || id <= 0) {
-    return res.status(400).json({ message: 'Invalid gaming code ID' });
+  const gamingCode = await getGamingCodeByIdentifier(identifier);
+  if (!gamingCode) {
+    return res.status(404).json({ message: 'Gaming code not found' });
   }
 
   const connection = await pool.getConnection();
@@ -257,14 +309,14 @@ router.post('/:id/inventory', auth, [
     await connection.beginTransaction();
 
     // Check if gaming code exists
-    const [gamingCode] = await connection.query('SELECT id FROM gaming_codes WHERE id = ?', [id]);
-    if (!gamingCode.length) {
+    const [gamingCodeRow] = await connection.query('SELECT id FROM gaming_codes WHERE id = ?', [gamingCode.id]);
+    if (!gamingCodeRow.length) {
       await connection.rollback();
       return res.status(404).json({ message: 'Gaming code not found' });
     }
 
     // Insert codes into inventory
-    const values = codes.map(code => [id, code]);
+    const values = codes.map(code => [gamingCode.id, code]);
     const placeholders = codes.map(() => '(?, ?)').join(', ');
 
     await connection.query(
@@ -277,7 +329,7 @@ router.post('/:id/inventory', auth, [
     // Get updated stock count
     const [stockResult] = await connection.query(
       'SELECT COUNT(*) as stock FROM gaming_code_inventory WHERE gaming_code_id = ? AND status = "available"',
-      [id]
+      [gamingCode.id]
     );
 
     res.status(201).json({
@@ -299,16 +351,17 @@ router.post('/:id/inventory', auth, [
 });
 
 // 9. GET INVENTORY FOR GAMING CODE (Manager only)
-router.get('/:id/inventory', auth, async (req, res) => {
+router.get('/:identifier/inventory', auth, async (req, res) => {
   if (!req.user || req.user.role !== 'manager') {
     return res.status(403).json({ message: 'Only managers can view inventory' });
   }
 
-  const { id } = req.params;
+  const { identifier } = req.params;
   const { status } = req.query; // optional filter
 
-  if (isNaN(id) || id <= 0) {
-    return res.status(400).json({ message: 'Invalid gaming code ID' });
+  const gamingCode = await getGamingCodeByIdentifier(identifier);
+  if (!gamingCode) {
+    return res.status(404).json({ message: 'Gaming code not found' });
   }
 
   try {
@@ -324,7 +377,7 @@ router.get('/:id/inventory', auth, async (req, res) => {
       LEFT JOIN buyers b ON gci.buyer_id = b.id
       WHERE gci.gaming_code_id = ?
     `;
-    const params = [id];
+    const params = [gamingCode.id];
 
     if (status) {
       query += ' AND gci.status = ?';
