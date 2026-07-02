@@ -58,10 +58,11 @@ router.get('/', productLimiter, async (req, res) => {
            WHEN UPPER(category) = 'PHONES' THEN 3
            WHEN UPPER(category) = 'TVS' THEN 4
            WHEN UPPER(category) = 'DIGITAL' THEN 5
-           WHEN UPPER(category) = 'PRE-OWNED' THEN 6
-           WHEN UPPER(category) = 'VR GEAR' THEN 7
-           WHEN UPPER(category) = 'MERCH' THEN 8
-           ELSE 9
+           WHEN UPPER(category) = 'GAMES' THEN 6
+           WHEN UPPER(category) = 'PRE-OWNED' THEN 7
+           WHEN UPPER(category) = 'VR GEAR' THEN 8
+           WHEN UPPER(category) = 'MERCH' THEN 9
+           ELSE 10
          END ASC,
          slug ASC
        LIMIT ?`,
