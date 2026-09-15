@@ -40,16 +40,24 @@ const slugify = (text) => {
     .replace(/\-\-+/g, '-');      // Replace multiple - with single -
 };
 
+const requireAdminAuth = (req, res, next) => {
+  auth(req, res, () => {
+    if (req.user?.role !== 'manager') {
+      return res.status(403).json({ message: 'Managers only' });
+    }
+    next();
+  });
+};
+
 // 1. GROUPED CATEGORY ROUTE (Optimized for instantaneous mobile rendering)
 router.get('/', productLimiter, async (req, res) => {
   try {
-    const limit = 80; // High safe threshold since indexation handles structure calculations
-
+    const limit = 80;
     res.set('Cache-Control', 'public, max-age=600, s-maxage=1200, stale-while-revalidate=60');
     
-    // SQL ORDER ENGINE (Swapped 'id' selections and order fallbacks to 'slug')
+    // Light query: Only essential catalog fields
     const [rows] = await pool.query(
-      `SELECT slug, name, brand, category, price, old_price, stock, image_url, is_hero, features, specs 
+      `SELECT slug, name, brand, category, price, stock, image_url 
        FROM products 
        ORDER BY 
          CASE 
@@ -69,29 +77,53 @@ router.get('/', productLimiter, async (req, res) => {
       [limit]
     );
 
-    // Group items natively directly on database execution response threads
-    const groupedProducts = rows.reduce((acc, p) => {
+    const categoryMap = new Map();
+    for (const p of rows) {
       const category = p.category || "Uncategorized";
-      if (!acc[category]) acc[category] = [];
-      
-      acc[category].push({
-        ...p,
-        is_hero: p.is_hero === 1 || p.is_hero === true || p.is_hero === '1',
-        features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
-        specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
+      if (!categoryMap.has(category)) categoryMap.set(category, []);
+      categoryMap.get(category).push({
+        ...p
       });
-      return acc;
-    }, {});
+    }
 
-    res.json({
-      catalog: Object.entries(groupedProducts)
-    });
+    res.json({ catalog: Array.from(categoryMap.entries()) });
   } catch (error) {
-    console.error("Grouped Catalog Query Error:", error);
-    res.status(500).json({ message: 'Server data mapping layout synchronization error' });
+    console.error("Client Catalog Fetch Error:", error);
+    res.status(500).json({ message: 'Error fetching catalog' });
   }
 });
 
+// get manager-only products (for inventory management)
+router.get('/admin/products', requireAdminAuth, async (req, res) => {
+  try {
+    // Disable public caching for real-time inventory editing
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+
+    const [rows] = await pool.query(
+      `SELECT slug, name, brand, category, price, old_price, stock, image_url, description, is_hero, features, specs 
+       FROM products 
+       ORDER BY category ASC, slug ASC`
+    );
+
+    const categoryMap = new Map();
+    for (const p of rows) {
+      const category = p.category || "Uncategorized";
+      if (!categoryMap.has(category)) categoryMap.set(category, []);
+      
+      categoryMap.get(category).push({
+        ...p,
+        is_hero: Boolean(p.is_hero),
+        features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
+        specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
+      });
+    }
+
+    res.json({ catalog: Array.from(categoryMap.entries()) });
+  } catch (error) {
+    console.error("Manager Inventory Fetch Error:", error);
+    res.status(500).json({ message: 'Error fetching manager inventory' });
+  }
+});
 
 // NEW DEDICATED HERO ROUTE - Fast and lightweight
 router.get('/hero-offers', async (req, res) => {
@@ -109,11 +141,31 @@ router.get('/hero-offers', async (req, res) => {
   }
 });
 
+// Lightweight public sitemap source: return only the identifiers needed for URLs.
+router.get('/sitemap', productLimiter, async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=300');
+    const [rows] = await pool.query(
+      'SELECT slug, updated_at FROM products WHERE slug IS NOT NULL ORDER BY slug ASC'
+    );
+    res.json({ products: rows });
+  } catch (error) {
+    console.error("Product Sitemap Fetch Error:", error);
+    res.status(500).json({ message: 'Error fetching product sitemap' });
+  }
+});
+
 // 2. GET SINGLE PRODUCT (Switched from :id parameter to :slug)
 router.get('/:slug', productLimiter, async (req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=3600');
-    const [rows] = await pool.query('SELECT * FROM products WHERE slug = ?', [req.params.slug]);
+    const [rows] = await pool.query(
+      `SELECT id, slug, name, brand, category, price, old_price, stock, image_url,
+              description, features, specs, is_hero
+       FROM products
+       WHERE slug = ?`,
+      [req.params.slug]
+    );
     
     if (!rows.length) return res.status(404).json({ message: 'Product not found' });
     
