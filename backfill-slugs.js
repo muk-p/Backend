@@ -35,11 +35,15 @@ async function backfillTable(tableName) {
     let uniqueSlug = baseSlug;
     let counter = 1;
 
-    while (true) {
+    while (counter <= 10000) {
       const [existing] = await pool.query(`SELECT id FROM ${tableName} WHERE slug = ? AND id != ?`, [uniqueSlug, row.id]);
       if (existing.length === 0) break;
       uniqueSlug = `${baseSlug}-${counter}`;
       counter += 1;
+    }
+
+    if (counter > 10000) {
+      throw new Error(`Unable to generate a unique slug for ${tableName} ID ${row.id}`);
     }
 
     await pool.query(`UPDATE ${tableName} SET slug = ? WHERE id = ?`, [uniqueSlug, row.id]);

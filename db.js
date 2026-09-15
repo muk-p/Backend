@@ -7,7 +7,8 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || 'gadgetfinds',
   waitForConnections: true,
   connectionLimit: 20,
-  queueLimit: 0,
+  queueLimit: 50,
+  connectTimeout: 10000,
   enableKeepAlive: true,
 });
 

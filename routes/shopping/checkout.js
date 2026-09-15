@@ -7,6 +7,7 @@ const { normalizeMpesaPhone } = require('../../utils/phone');
 const { generateUniqueOrderNumber } = require('../../utils/orderNumber');
 
 const pendingCheckoutSessions = new Map();
+const DARaja_TIMEOUT_MS = 15000;
 
 // Helper Function: Fetch short-lived Daraja Access Token
 async function getDarajaToken() {
@@ -23,6 +24,7 @@ async function getDarajaToken() {
     const response = await axios.get(
       'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
       { 
+        timeout: DARaja_TIMEOUT_MS,
         headers: { 
           'Authorization': `Basic ${auth}`,
           'Accept': 'application/json',
@@ -88,7 +90,7 @@ router.post(
       return res.status(400).json({ message: 'Invalid product IDs in order items' });
     }
 
-    const connection = await pool.getConnection();
+    let connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
@@ -119,69 +121,69 @@ router.post(
         });
       }
 
-      // -------------------------------------------------------------
-      // DARAJA M-PESA STK PUSH INTEGRATION BLOCK
-      // -------------------------------------------------------------
-      let darajaResponseData = null;
-      let paymentInitiated = false;
-      let paymentErrorMessage = null;
-
       if (paymentMethod === 'M-PESA') {
+        // No database locks or pooled connections should remain open during gateway calls.
+        await connection.commit();
+        connection.release();
+        connection = null;
+
+        let darajaResponseData = null;
+        let paymentErrorMessage = null;
         try {
           const accessToken = await getDarajaToken();
           const shortCode = '174379';
           const passkey = process.env.DARAJA_PASSKEY;
           const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
           const password = Buffer.from(`${shortCode}${passkey}${timestamp}`).toString('base64');
-          const payableAmount = Math.round(totalAmount);
-
-          const stkPayload = {
-            BusinessShortCode: shortCode,
-            Password: password,
-            Timestamp: timestamp,
-            TransactionType: 'CustomerPayBillOnline',
-            Amount: payableAmount,
-            PartyA: normalizedPhone,
-            PartyB: shortCode,
-            PhoneNumber: normalizedPhone,
-            CallBackURL: `${process.env.BACKEND_URL}/api/shopping/checkout/mpesa-callback`,
-            AccountReference: `Order_Ref`,
-            TransactionDesc: `Payment for order`
-          };
-
           const darajaRes = await axios.post(
             'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
-            stkPayload,
             {
+              BusinessShortCode: shortCode,
+              Password: password,
+              Timestamp: timestamp,
+              TransactionType: 'CustomerPayBillOnline',
+              Amount: Math.round(totalAmount),
+              PartyA: normalizedPhone,
+              PartyB: shortCode,
+              PhoneNumber: normalizedPhone,
+              CallBackURL: `${process.env.BACKEND_URL}/api/shopping/checkout/mpesa-callback`,
+              AccountReference: 'Order_Ref',
+              TransactionDesc: 'Payment for order'
+            },
+            {
+              timeout: DARaja_TIMEOUT_MS,
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'Content-Type': 'application/json'
               }
             }
           );
           darajaResponseData = darajaRes.data;
-          paymentInitiated = Boolean(darajaResponseData?.MerchantRequestID);
         } catch (stkError) {
           console.error('Daraja Gateway Error Details:', stkError.response?.data || stkError.message);
           paymentErrorMessage = `M-Pesa prompt could not be started right now: ${stkError.response?.data?.CustomerMessage || stkError.message}`;
         }
-      }
-      // -------------------------------------------------------------
 
-      const mpesaTrackingId = darajaResponseData?.MerchantRequestID || null;
+        const mpesaTrackingId = darajaResponseData?.MerchantRequestID || null;
+        if (mpesaTrackingId) {
+          const pendingSession = {
+            buyerId, address, paymentMethod, totalAmount, orderItemsData, customerName,
+            expiresAt: Date.now() + 10 * 60 * 1000
+          };
+          pendingCheckoutSessions.set(mpesaTrackingId, pendingSession);
+          setTimeout(() => {
+            if (pendingCheckoutSessions.get(mpesaTrackingId) === pendingSession) {
+              pendingCheckoutSessions.delete(mpesaTrackingId);
+            }
+          }, 10 * 60 * 1000).unref?.();
+        }
 
-      if (paymentMethod === 'M-PESA' && paymentInitiated && mpesaTrackingId) {
-        pendingCheckoutSessions.set(mpesaTrackingId, {
-          buyerId,
-          address,
-          paymentMethod,
+        return res.status(201).json({
           totalAmount,
-          orderItemsData,
-          customerName,
+          paymentInitiated: Boolean(mpesaTrackingId),
+          message: mpesaTrackingId ? 'STK prompt triggered.' : paymentErrorMessage,
+          MerchantRequestID: mpesaTrackingId
         });
       }
 
@@ -228,11 +230,11 @@ router.post(
       });
 
     } catch (error) {
-      await connection.rollback();
+      if (connection) await connection.rollback();
       console.error('Checkout Transaction Aborted:', error.message);
       res.status(400).json({ message: error.message });
     } finally {
-      connection.release();
+      if (connection) connection.release();
     }
   }
 );
@@ -249,6 +251,9 @@ router.post('/mpesa-callback', async (req, res) => {
     await connection.beginTransaction();
 
     const pendingSession = pendingCheckoutSessions.get(MerchantRequestID);
+    if (pendingSession?.expiresAt && pendingSession.expiresAt <= Date.now()) {
+      pendingCheckoutSessions.delete(MerchantRequestID);
+    }
 
     if (ResultCode !== 0) {
       console.warn(`Payment failed or canceled by user: ${ResultDesc} (${ResultCode})`);

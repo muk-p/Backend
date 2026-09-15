@@ -23,7 +23,16 @@ export function clearOrderId() {
 }
 
 export async function fetchCheckout(orderId) {
-  const response = await fetch(`/api/checkout/${orderId}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  let response;
+
+  try {
+    response = await fetch(`/api/checkout/${orderId}`, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     throw new Error('Failed to load checkout details');
   }

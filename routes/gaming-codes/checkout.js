@@ -5,6 +5,7 @@ const pool = require('../../db');
 const auth = require('../../middleware/auth');
 const { body, validationResult } = require('express-validator');
 const { sendGamingCodeEmail } = require('../../utils/mailer');
+const MPESA_TIMEOUT_MS = 15000;
 
 // HELPER: Generate Safaricom OAuth Access Token
 const getMpesaToken = async () => {
@@ -14,7 +15,7 @@ const getMpesaToken = async () => {
   
   const response = await axios.get(
     'https://safaricom.co.ke',
-    { headers: { Authorization: `Basic ${authHeader}` } }
+    { timeout: MPESA_TIMEOUT_MS, headers: { Authorization: `Basic ${authHeader}` } }
   );
   return response.data.access_token;
 };
@@ -36,7 +37,7 @@ router.post(
     const { mpesaPhone } = req.body;
     const buyerId = req.user.id;
 
-    const connection = await pool.getConnection();
+    let connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
@@ -62,6 +63,10 @@ router.post(
 
       const itemPrice = Math.round(itemDetails[0].price); // Cast to integer for Daraja
 
+      await connection.commit();
+      connection.release();
+      connection = null;
+
       // Build Daraja Crypto Key Requirements
       const token = await getMpesaToken();
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
@@ -85,18 +90,16 @@ router.post(
           AccountReference: `GF-${id}`,
           TransactionDesc: `Purchase ${itemDetails[0].name}`
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { timeout: MPESA_TIMEOUT_MS, headers: { Authorization: `Bearer ${token}` } }
       );
 
       // Create tracking entry into updated `gaming_code_purchases`
-      await connection.query(
+      await pool.query(
         `INSERT INTO gaming_code_purchases 
          (buyer_id, gaming_code_id, inventory_id, purchase_price, mpesa_phone, merchant_request_id, status) 
          VALUES (?, ?, NULL, ?, ?, ?, 'pending')`,
         [buyerId, id, itemPrice, mpesaPhone, stkResponse.data.MerchantRequestID]
       );
-
-      await connection.commit();
 
       res.status(200).json({
         message: 'STK prompt pushed to handset device. Complete transaction on screen.',
@@ -104,11 +107,11 @@ router.post(
       });
 
     } catch (error) {
-      await connection.rollback();
+      if (connection) await connection.rollback();
       console.error('STK Dispatch Failure:', error.response?.data || error.message);
       res.status(500).json({ message: 'Failed to initiate M-Pesa gateway transaction.' });
     } finally {
-      connection.release();
+      if (connection) connection.release();
     }
   }
 );

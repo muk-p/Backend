@@ -23,7 +23,7 @@ const ensureUniqueSlug = async (name, currentId = null) => {
   let slug = baseSlug;
   let counter = 1;
 
-  while (true) {
+  while (counter <= 1000) {
     const [rows] = await pool.query(
       'SELECT id FROM gaming_codes WHERE slug = ? AND id != ?',
       [slug, currentId || 0]
@@ -36,6 +36,8 @@ const ensureUniqueSlug = async (name, currentId = null) => {
     slug = `${baseSlug}-${counter}`;
     counter += 1;
   }
+
+  throw new Error('Unable to generate a unique gaming-code slug');
 };
 
 // 1. GET ALL gaming codes with stock calculated from inventory
