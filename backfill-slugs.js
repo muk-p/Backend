@@ -39,6 +39,17 @@ async function ensureImagesColumn() {
   }
 }
 
+async function backfillProductImages() {
+  await pool.query(
+    `UPDATE products
+     SET images = JSON_ARRAY(image_url)
+     WHERE (images IS NULL OR JSON_LENGTH(images) = 0)
+       AND image_url IS NOT NULL
+       AND image_url <> ''`
+  );
+  console.log('Backfilled product galleries from image_url.');
+}
+
 async function backfillTable(tableName) {
   const [rows] = await pool.query(`SELECT id, name FROM ${tableName} WHERE slug IS NULL OR slug = ''`);
   console.log(`Found ${rows.length} ${tableName} rows to update...`);
@@ -70,6 +81,7 @@ async function backfill() {
     await ensureSlugColumn('products');
     await ensureSlugColumn('gaming_codes');
     await ensureImagesColumn();
+    await backfillProductImages();
 
     await backfillTable('products');
     await backfillTable('gaming_codes');

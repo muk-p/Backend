@@ -47,10 +47,20 @@ const parseImages = (value, fallbackImage) => {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed)) return parsed.filter(Boolean).slice(0, 4);
     } catch {
-      return [value];
+      return fallbackImage ? [fallbackImage] : [];
     }
   }
   return fallbackImage ? [fallbackImage] : [];
+};
+
+const parseJsonValue = (value, fallback) => {
+  if (!value) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 };
 
 const requireAdminAuth = (req, res, next) => {
@@ -112,11 +122,23 @@ router.get('/admin/products', requireAdminAuth, async (req, res) => {
     // Disable public caching for real-time inventory editing
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
-    const [rows] = await pool.query(
-      `SELECT slug, name, brand, category, price, old_price, stock, image_url, images, description, is_hero, features, specs 
-       FROM products 
-       ORDER BY category ASC, slug ASC`
-    );
+    let rows;
+    try {
+      [rows] = await pool.query(
+        `SELECT slug, name, brand, category, price, old_price, stock, image_url, images, description, is_hero, features, specs
+         FROM products
+         ORDER BY category ASC, slug ASC`
+      );
+    } catch (error) {
+      if (error.code !== 'ER_BAD_FIELD_ERROR' && error.errno !== 1054) throw error;
+
+      // Keep manager inventory usable while an older production database is migrated.
+      [rows] = await pool.query(
+        `SELECT slug, name, brand, category, price, old_price, stock, image_url, description, is_hero, features, specs
+         FROM products
+         ORDER BY category ASC, slug ASC`
+      );
+    }
 
     const categoryMap = new Map();
     for (const p of rows) {
@@ -127,8 +149,8 @@ router.get('/admin/products', requireAdminAuth, async (req, res) => {
         ...p,
         is_hero: Boolean(p.is_hero),
         images: parseImages(p.images, p.image_url),
-        features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
-        specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
+        features: parseJsonValue(p.features, []),
+        specs: parseJsonValue(p.specs, {})
       });
     }
 
