@@ -26,6 +26,19 @@ async function ensureSlugColumn(tableName) {
   }
 }
 
+async function ensureImagesColumn() {
+  try {
+    await pool.query('ALTER TABLE products ADD COLUMN images JSON NULL AFTER image_url;');
+    console.log('Added images column to products.');
+  } catch (dbError) {
+    if (dbError.code === 'ER_DUP_FIELDNAME' || dbError.message.includes('already exists')) {
+      console.log('Images column already exists on products, skipping.');
+    } else {
+      throw dbError;
+    }
+  }
+}
+
 async function backfillTable(tableName) {
   const [rows] = await pool.query(`SELECT id, name FROM ${tableName} WHERE slug IS NULL OR slug = ''`);
   console.log(`Found ${rows.length} ${tableName} rows to update...`);
@@ -56,6 +69,7 @@ async function backfill() {
     console.log('Ensuring slug columns exist in production...');
     await ensureSlugColumn('products');
     await ensureSlugColumn('gaming_codes');
+    await ensureImagesColumn();
 
     await backfillTable('products');
     await backfillTable('gaming_codes');

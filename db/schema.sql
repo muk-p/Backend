@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS products (
   old_price DECIMAL(10,2),
   stock INT DEFAULT 0,
   image_url TEXT,
+  images JSON,
   description TEXT,
   features JSON,          
   specs JSON,             

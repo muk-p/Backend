@@ -40,6 +40,19 @@ const slugify = (text) => {
     .replace(/\-\-+/g, '-');      // Replace multiple - with single -
 };
 
+const parseImages = (value, fallbackImage) => {
+  if (Array.isArray(value)) return value.filter(Boolean).slice(0, 4);
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).slice(0, 4);
+    } catch {
+      return [value];
+    }
+  }
+  return fallbackImage ? [fallbackImage] : [];
+};
+
 const requireAdminAuth = (req, res, next) => {
   auth(req, res, () => {
     if (req.user?.role !== 'manager') {
@@ -100,7 +113,7 @@ router.get('/admin/products', requireAdminAuth, async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
     const [rows] = await pool.query(
-      `SELECT slug, name, brand, category, price, old_price, stock, image_url, description, is_hero, features, specs 
+      `SELECT slug, name, brand, category, price, old_price, stock, image_url, images, description, is_hero, features, specs 
        FROM products 
        ORDER BY category ASC, slug ASC`
     );
@@ -113,6 +126,7 @@ router.get('/admin/products', requireAdminAuth, async (req, res) => {
       categoryMap.get(category).push({
         ...p,
         is_hero: Boolean(p.is_hero),
+        images: parseImages(p.images, p.image_url),
         features: p.features ? (typeof p.features === 'string' ? JSON.parse(p.features) : p.features) : [],
         specs: p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {}
       });
@@ -160,7 +174,7 @@ router.get('/:slug', productLimiter, async (req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=3600');
     const [rows] = await pool.query(
-      `SELECT id, slug, name, brand, category, price, old_price, stock, image_url,
+      `SELECT id, slug, name, brand, category, price, old_price, stock, image_url, images,
               description, features, specs, is_hero
        FROM products
        WHERE slug = ?`,
@@ -173,6 +187,7 @@ router.get('/:slug', productLimiter, async (req, res) => {
     const product = {
       ...p,
       is_hero: !!p.is_hero,
+      images: parseImages(p.images, p.image_url),
       features: typeof p.features === 'string' ? JSON.parse(p.features || '[]') : (p.features || []),
       specs: typeof p.specs === 'string' ? JSON.parse(p.specs || '{}') : (p.specs || {})
     };
@@ -185,7 +200,7 @@ router.get('/:slug', productLimiter, async (req, res) => {
 });
 
 // 3. POST NEW PRODUCT (Switched registration returns to slug targets)
-router.post('/', auth, upload.single('image'), async (req, res) => {
+router.post('/', auth, upload.array('images', 4), async (req, res) => {
   if (req.user?.role !== 'manager') return res.status(403).json({ message: 'Managers only' });
 
   const { 
@@ -195,7 +210,9 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
 
   // Use the provided slug, or auto-generate one from the name if empty
   const productSlug = slug ? slugify(slug) : slugify(name);
-  const image_url = req.file ? `/uploads/${req.file.filename}` : req.body.image_url;
+  const uploadedImages = (req.files || []).map(file => `/uploads/${file.filename}`);
+  const images = uploadedImages.length ? uploadedImages : parseImages(req.body.images, req.body.image_url);
+  const image_url = images[0] || req.body.image_url;
 
   const parseJsonField = (field, isArray = true) => {
     if (!field) return JSON.stringify(isArray ? [] : {});
@@ -207,11 +224,11 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
   try {
     const [result] = await pool.query(
       `INSERT INTO products 
-      (slug, name, brand, category, price, old_price, stock, image_url, description, features, specs, is_hero) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (slug, name, brand, category, price, old_price, stock, image_url, images, description, features, specs, is_hero) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         productSlug,
-        name, brand, category, price, old_price || null, stock || 0, image_url, description, 
+        name, brand, category, price, old_price || null, stock || 0, image_url, JSON.stringify(images), description, 
         parseJsonField(features, true), 
         parseJsonField(specs, false),
         is_hero === 'true' || is_hero === true || is_hero == 1 ? 1 : 0
@@ -221,7 +238,8 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
     res.status(201).json({ 
       slug: productSlug, 
       ...req.body, 
-      image_url, 
+      image_url,
+      images,
       is_hero: !!is_hero 
     });
   } catch (error) {
@@ -233,15 +251,15 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
 });
 
 // 4. PUT UPDATE PRODUCT (Using slug as parameter and updating values)
-router.put('/:slug', auth, upload.single('image'), async (req, res) => {
+router.put('/:slug', auth, upload.array('images', 4), async (req, res) => {
   if (req.user?.role !== 'manager') return res.status(403).json({ message: 'Managers only' });
   const currentSlug = req.params.slug;
   const { name, brand, category, price, old_price, stock, description, features, specs, is_hero, slug } = req.body;
 
-  let image_url = req.body.image_url;
-  if (req.file) {
-    image_url = `/uploads/${req.file.filename}`;
-  } else if (image_url && image_url.includes('http')) {
+  const uploadedImages = (req.files || []).map(file => `/uploads/${file.filename}`);
+  const images = uploadedImages.length ? uploadedImages : parseImages(req.body.images, req.body.image_url);
+  let image_url = images[0] || req.body.image_url;
+  if (!uploadedImages.length && image_url && image_url.includes('http')) {
     const urlParts = image_url.split('/uploads/');
     if (urlParts.length > 1) image_url = `/uploads/${urlParts[1]}`;
   }
@@ -260,7 +278,7 @@ router.put('/:slug', auth, upload.single('image'), async (req, res) => {
     const query = `
       UPDATE products 
       SET slug = ?, name = ?, brand = ?, category = ?, price = ?, old_price = ?, 
-          stock = ?, description = ?, features = ?, specs = ?, image_url = ?, is_hero = ?
+          stock = ?, description = ?, features = ?, specs = ?, image_url = ?, images = ?, is_hero = ?
       WHERE slug = ?
     `;
     
@@ -270,7 +288,7 @@ router.put('/:slug', auth, upload.single('image'), async (req, res) => {
       old_price ? parseFloat(old_price) : null,
       parseInt(stock) || 0, description || '',
       parseJsonField(features, true), parseJsonField(specs, false),
-      image_url,
+      image_url, JSON.stringify(images),
       is_hero === 'true' || is_hero === true || is_hero == 1 ? 1 : 0,
       currentSlug
     ];
