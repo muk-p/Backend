@@ -332,7 +332,13 @@ router.put('/:slug', auth, upload.array('images', 4), async (req, res) => {
     ];
 
     const [result] = await pool.query(query, values);
-    if (result.affectedRows === 0) return res.status(404).json({ message: 'Product not found' });
+    if (result.affectedRows === 0) {
+      const [existingRows] = await pool.query(
+        'SELECT slug FROM products WHERE slug = ?',
+        [currentSlug]
+      );
+      if (!existingRows.length) return res.status(404).json({ message: 'Product not found' });
+    }
 
     res.json({ 
       message: 'Product updated successfully', 
