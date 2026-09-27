@@ -14,7 +14,11 @@ Backend starter project for the gaming gadgets store.
    ```bash
    npm run init-db
    ```
-4. Start the server:
+4. For an existing database, add the product image gallery column and preserve current primary images:
+   ```bash
+   npm run migrate:product-images
+   ```
+5. Start the server:
    ```bash
    npm run dev
    ```
