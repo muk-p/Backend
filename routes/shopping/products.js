@@ -177,6 +177,22 @@ router.get('/hero-offers', async (req, res) => {
   }
 });
 
+router.get('/merchant-feed-data', productLimiter, async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=900, s-maxage=900, stale-while-revalidate=60');
+    const [rows] = await pool.query(
+      `SELECT id, slug, name, brand, price, stock, image_url, description
+       FROM products
+       WHERE slug IS NOT NULL AND TRIM(slug) <> ''
+       ORDER BY slug ASC`
+    );
+    res.json({ products: rows });
+  } catch (error) {
+    console.error('Merchant Feed Product Fetch Error:', error);
+    res.status(500).json({ message: 'Error fetching products for Merchant feed' });
+  }
+});
+
 // Lightweight public sitemap source: return only the identifiers needed for URLs.
 router.get('/sitemap', productLimiter, async (req, res) => {
   try {
