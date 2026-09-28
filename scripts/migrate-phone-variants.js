@@ -35,6 +35,8 @@ async function migrate() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         product_id INT NOT NULL,
         variant_label VARCHAR(120) NOT NULL,
+        ram_gb SMALLINT UNSIGNED NULL,
+        storage_gb SMALLINT UNSIGNED NULL,
         market VARCHAR(80) NOT NULL DEFAULT 'Standard',
         warranty VARCHAR(120) NOT NULL DEFAULT '',
         price DECIMAL(10,2) NOT NULL,
@@ -47,6 +49,19 @@ async function migrate() {
         FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
       ) ENGINE=InnoDB
     `);
+
+    for (const [columnName, afterColumn] of [['ram_gb', 'variant_label'], ['storage_gb', 'ram_gb']]) {
+      const [columns] = await connection.query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'phone_variants' AND COLUMN_NAME = ?`,
+        [databaseName, columnName]
+      );
+      if (!columns.length) {
+        await connection.query(
+          `ALTER TABLE phone_variants ADD COLUMN ${columnName} SMALLINT UNSIGNED NULL AFTER ${afterColumn}`
+        );
+      }
+    }
 
     const [columns] = await connection.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

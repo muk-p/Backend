@@ -251,8 +251,12 @@ router.get('/preview/phones', (req, res) => {
     for (const variant of readCsv('phone-variants.csv')) {
       const variants = variantsBySlug.get(variant.product_slug) || [];
       variants.push({
+        id: `${variant.product_slug}:${variants.length}`,
         label: variant.variant_label,
+        ram_gb: variant.ram_gb ? Number(variant.ram_gb) : null,
+        storage_gb: variant.storage_gb ? Number(variant.storage_gb) : null,
         price: Number(variant.price_ksh),
+        stock: Number(variant.stock),
         market: variant.market,
         warranty: variant.warranty,
       });

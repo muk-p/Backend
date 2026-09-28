@@ -42,6 +42,14 @@ function validate(products, variants) {
     if (!variant.variant_label || !variant.market || !variant.warranty) {
       throw new Error(`Missing variant label, market, or warranty for ${variant.product_slug}`);
     }
+    for (const field of ['ram_gb', 'storage_gb']) {
+      if (variant[field] && (!Number.isInteger(Number(variant[field])) || Number(variant[field]) <= 0)) {
+        throw new Error(`Invalid ${field} for ${variant.product_slug} ${variant.variant_label}`);
+      }
+    }
+    if (!Number.isInteger(Number(variant.stock)) || Number(variant.stock) < 0) {
+      throw new Error(`Invalid stock for ${variant.product_slug} ${variant.variant_label}`);
+    }
     const price = Number(variant.price_ksh);
     if (!Number.isFinite(price) || price <= 0) throw new Error(`Invalid variant price for ${variant.product_slug}`);
     const key = [variant.product_slug, variant.variant_label, variant.market, variant.warranty].join('\0');
@@ -123,15 +131,20 @@ async function importCatalog() {
 
     for (const variant of variants) {
       await connection.query(
-        `INSERT INTO phone_variants (product_id, variant_label, market, warranty, price, stock, is_active)
-         VALUES (?, ?, ?, ?, ?, 0, 1)
-         ON DUPLICATE KEY UPDATE price = VALUES(price), is_active = 1`,
+        `INSERT INTO phone_variants
+          (product_id, variant_label, ram_gb, storage_gb, market, warranty, price, stock, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+         ON DUPLICATE KEY UPDATE
+          ram_gb = VALUES(ram_gb), storage_gb = VALUES(storage_gb), price = VALUES(price), is_active = 1`,
         [
           productIds.get(variant.product_slug),
           variant.variant_label,
+          variant.ram_gb ? Number(variant.ram_gb) : null,
+          variant.storage_gb ? Number(variant.storage_gb) : null,
           variant.market,
           variant.warranty,
           Number(variant.price_ksh),
+          Number(variant.stock),
         ]
       );
     }
