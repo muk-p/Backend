@@ -9,7 +9,8 @@
     "init-db": "node scripts/init-db.js",
     "migrate:product-images": "node scripts/migrate-product-images.js",
     "migrate:phone-variants": "node scripts/migrate-phone-variants.js",
-    "import:phones": "node scripts/import-phone-catalog.js"
+    "import:phones": "node scripts/import-phone-catalog.js",
+    "normalize:phones": "node scripts/normalize-phone-variants.js"
   },
   "dependencies": {
     "axios": "^1.16.1",

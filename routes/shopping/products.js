@@ -6,6 +6,7 @@ const auth = require('../../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
+const { parse } = require('csv-parse/sync');
 
 // Rate limiting for public product endpoints (100 requests per 15 minutes per IP)
 const productLimiter = rateLimit({
@@ -237,13 +238,11 @@ router.get('/preview/phones', (req, res) => {
   try {
     const readCsv = (fileName) => {
       const filePath = path.join(__dirname, '../../', fileName);
-      const [headerLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
-      const headers = headerLine.split(',');
-
-      return lines.filter(Boolean).map((line) => {
-        const values = line.split(',');
-        if (values.length !== headers.length) throw new Error(`Invalid CSV row in ${fileName}`);
-        return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+      return parse(fs.readFileSync(filePath), {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        bom: true,
       });
     };
 
@@ -331,7 +330,7 @@ router.get('/:slug', productLimiter, async (req, res) => {
 
     if (variantsTableAvailable && String(product.category || '').toLowerCase() === 'phones') {
       const [variants] = await pool.query(
-        `SELECT id, variant_label, market, warranty, price, stock
+        `SELECT id, variant_label, ram_gb, storage_gb, market, warranty, price, stock
          FROM phone_variants WHERE product_id = ? AND is_active = 1
          ORDER BY price ASC, variant_label ASC`,
         [product.id]

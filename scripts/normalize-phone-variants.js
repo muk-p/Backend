@@ -15,21 +15,22 @@ function parseSize(value) {
     label: unit === 'TB' ? `${amount}TB` : `${amount}GB`,
   };
 }
-
 function normalizeLabel(sourceLabel) {
-  let match = sourceLabel.match(/^(\d+)\s*([+/])\s*(\d+)(?:\s+(.*))?$/);
+  let match = sourceLabel.match(/^(\d+(?:TB|GB)?)\s*([+/])\s*(\d+(?:TB|GB)?)(?:\s+(.*))?$/i);
   if (match) {
-    const first = Number(match[1]);
-    const second = Number(match[3]);
+    const first = parseSize(match[1]);
+    const second = parseSize(match[3]);
     let ram;
     let storage;
 
-    if (first <= 16) {
-      ram = first;
-      storage = parseSize(match[3]);
+    if (first.gb <= 16 && second.gb > 16) {
+      ram = first.gb;
+      storage = second;
+    } else if (first.gb > 16 && second.gb <= 16) {
+      storage = first;
+      ram = second.gb;
     } else {
-      storage = parseSize(match[1]);
-      ram = second;
+      throw new Error(`Cannot determine RAM/storage order for: ${sourceLabel}`);
     }
 
     const details = match[4] ? `, ${match[4].replace(/-/g, ' ')}` : '';
@@ -70,7 +71,10 @@ function main() {
     'product_slug', 'variant_label', 'ram_gb', 'storage_gb', 'price_ksh', 'stock', 'market', 'warranty',
   ];
   const outputRows = rows.map((row) => {
-    const formatted = normalizeLabel(row.source_variant_label || row.variant_label);
+    const alreadyStructured = Object.hasOwn(row, 'storage_gb') && row.storage_gb !== '';
+    const formatted = alreadyStructured
+      ? { label: row.variant_label, ramGb: row.ram_gb || '', storageGb: row.storage_gb }
+      : normalizeLabel(row.source_variant_label || row.variant_label);
     const stock = row.stock === undefined || row.stock === '' ? 0 : Number(row.stock);
     if (!Number.isInteger(stock) || stock < 0) throw new Error(`Invalid stock for ${row.product_slug}`);
 

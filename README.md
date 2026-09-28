@@ -25,7 +25,15 @@ Backend starter project for the gaming gadgets store.
 
 ## Phone variants rollout
 
-Phone models are stored once in `products`; storage/configuration, market, warranty, price, and stock are stored in `phone_variants`. Order items keep the selected variant and purchase-time price. The phone CSV import initializes variant stock to `0` because the source price list does not specify inventory.
+Phone models are stored once in `products`; RAM, storage, market, warranty, price, and stock are stored in `phone_variants`. The variant CSV uses readable labels such as `4GB RAM, 128GB storage`, with numeric `ram_gb` and `storage_gb` columns for filtering. Order items keep the selected variant and purchase-time price. The source price list does not specify inventory, so all imported variant stock values are `0` until you fill in real counts.
+
+To normalize shorthand configuration labels and add a stock column (defaulting missing stock to zero), run:
+
+```bash
+npm run normalize:phones
+```
+
+The normalizer preserves any stock counts already entered and can be rerun safely.
 
 Do not run schema or import writes against the active Railway database during review. First point `Backend/.env` at an isolated staging database whose `DB_NAME` contains `staging`. Both commands default to a no-write validation run:
 
@@ -41,7 +49,7 @@ npm run migrate:phone-variants -- --execute --confirm-staging=<staging-database-
 npm run import:phones -- --execute --confirm-staging=<staging-database-name>
 ```
 
-Set the variant stock in staging before testing checkout. The importer is repeatable and preserves existing image, description, feature, and spec content when the CSV has blank placeholders. Do not deploy the phone-enabled frontend until the database migration has been applied.
+Set the variant stock in staging before testing checkout. The importer is repeatable, imports stock from the CSV for new variants, and preserves manually managed stock plus existing image, description, feature, and spec content on repeat imports. Do not deploy the phone-enabled frontend until the database migration has been applied.
 
 ## Available APIs
 
