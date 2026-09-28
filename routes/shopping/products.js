@@ -230,8 +230,8 @@ router.get('/sitemap', productLimiter, async (req, res) => {
   }
 });
 
-router.get('/preview/phones', (req, res) => {
-  if (process.env.NODE_ENV === 'production' || process.env.PHONE_CATALOG_PREVIEW !== 'true') {
+router.get('/admin/preview/phones', requireAdminAuth, (req, res) => {
+  if (process.env.PHONE_CATALOG_PREVIEW !== 'true') {
     return res.sendStatus(404);
   }
 
@@ -279,7 +279,7 @@ router.get('/preview/phones', (req, res) => {
       variants: variantsBySlug.get(product.slug) || [],
     }));
 
-    res.set('Cache-Control', 'no-store').json({ products });
+    res.set('Cache-Control', 'private, no-store, max-age=0').json({ products });
   } catch (error) {
     console.error('Phone catalog preview failed:', error.message);
     res.status(500).json({ message: 'Unable to load local phone preview data' });

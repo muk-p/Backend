@@ -51,6 +51,10 @@ npm run import:phones -- --execute --confirm-staging=<staging-database-name>
 
 Set the variant stock in staging before testing checkout. The importer is repeatable, imports stock from the CSV for new variants, and preserves manually managed stock plus existing image, description, feature, and spec content on repeat imports. Do not deploy the phone-enabled frontend until the database migration has been applied.
 
+## Internal phone preview
+
+The `/preview/phones` page is restricted to manager sessions. Its API endpoint validates the manager bearer token, returns private uncached CSV data, and performs no database writes. To enable it in a deployment, include both phone CSV files in the backend release and set `PHONE_CATALOG_PREVIEW=true` in that backend environment. Leave the flag unset or false to disable the preview API (it returns 404). The frontend page also redirects sessions that are not managers.
+
 ## Available APIs
 
 ### Shopping
