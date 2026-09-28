@@ -8,6 +8,25 @@ const { generateUniqueOrderNumber } = require('../../utils/orderNumber');
 
 const pendingCheckoutSessions = new Map();
 const DARaja_TIMEOUT_MS = 15000;
+const isMissingVariantSchema = (error) => error.code === 'ER_NO_SUCH_TABLE'
+  || error.code === 'ER_BAD_FIELD_ERROR'
+  || error.errno === 1146
+  || error.errno === 1054;
+
+async function insertOrderItem(connection, orderId, item) {
+  try {
+    await connection.query(
+      'INSERT INTO order_items (order_id, product_id, phone_variant_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?, ?)',
+      [orderId, item.productId, item.variantId || null, item.quantity, item.unitPrice]
+    );
+  } catch (error) {
+    if (item.variantId || !isMissingVariantSchema(error)) throw error;
+    await connection.query(
+      'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)',
+      [orderId, item.productId, item.quantity, item.unitPrice]
+    );
+  }
+}
 
 // Helper Function: Fetch short-lived Daraja Access Token
 async function getDarajaToken() {
@@ -46,6 +65,7 @@ router.post(
   [
     body('items').isArray({ min: 1 }).withMessage('Order items are required'),
     body('items.*.productId').isInt().withMessage('Each item must include a productId'),
+    body('items.*.variantId').optional({ nullable: true }).isInt().withMessage('Phone variant IDs must be integers'),
     body('items.*.quantity').isInt({ gt: 0 }).withMessage('Each item quantity must be a positive integer'),
     body('customerName').notEmpty().withMessage('Customer name is required'),
     body('address').notEmpty().withMessage('Shipping address is required'),
@@ -96,28 +116,52 @@ router.post(
 
       // Row locking stock layout configurations for transaction processing safety
       const [products] = await connection.query(
-        `SELECT id, name, price, stock FROM products WHERE id IN (${productIds.map(() => '?').join(',')}) FOR UPDATE`,
+        `SELECT id, name, price, stock, category FROM products WHERE id IN (${productIds.map(() => '?').join(',')}) FOR UPDATE`,
         productIds
       );
 
       const productMap = new Map(products.map(p => [p.id, p]));
+      const variantIds = [...new Set(
+        items
+          .filter(item => item.variantId !== undefined && item.variantId !== null && item.variantId !== '')
+          .map(item => Number(item.variantId))
+          .filter(Number.isInteger)
+      )];
+      const [variants] = variantIds.length
+        ? await connection.query(
+          `SELECT id, product_id, variant_label, market, warranty, price, stock
+           FROM phone_variants WHERE id IN (${variantIds.map(() => '?').join(',')}) AND is_active = 1 FOR UPDATE`,
+          variantIds
+        )
+        : [[]];
+      const variantMap = new Map(variants.map(variant => [variant.id, variant]));
       let totalAmount = 0;
       const orderItemsData = [];
 
       for (const item of items) {
         const product = productMap.get(Number(item.productId));
         if (!product) throw new Error(`Product ${item.productId} not found`);
-        if (product.stock < item.quantity) {
-          throw new Error(`Not enough stock for ${product.name}. Remaining: ${product.stock}`);
+        const isPhone = String(product.category || '').toLowerCase() === 'phones';
+        const variant = item.variantId ? variantMap.get(Number(item.variantId)) : null;
+        if (isPhone && !variant) throw new Error(`Choose a valid configuration for ${product.name}`);
+        if (!isPhone && item.variantId) throw new Error(`${product.name} does not accept a phone variant`);
+        if (variant && Number(variant.product_id) !== product.id) {
+          throw new Error(`The selected configuration does not belong to ${product.name}`);
         }
 
-        const unitPrice = Number(product.price);
+        const availableStock = variant ? Number(variant.stock) : Number(product.stock);
+        if (availableStock < item.quantity) {
+          throw new Error(`Not enough stock for ${product.name}${variant ? ` (${variant.variant_label})` : ''}. Remaining: ${availableStock}`);
+        }
+
+        const unitPrice = Number(variant?.price ?? product.price);
         totalAmount += unitPrice * item.quantity;
         orderItemsData.push({
           productId: product.id,
+          variantId: variant?.id || null,
           quantity: item.quantity,
           unitPrice,
-          name: product.name
+          name: variant ? `${product.name} ${variant.variant_label}` : product.name
         });
       }
 
@@ -196,14 +240,19 @@ router.post(
         const orderId = orderResult.insertId;
 
         for (const item of orderItemsData) {
-          await connection.query(
-            'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)',
-            [orderId, item.productId, item.quantity, item.unitPrice]
-          );
-          await connection.query(
-            'UPDATE products SET stock = stock - ? WHERE id = ?',
-            [item.quantity, item.productId]
-          );
+          await insertOrderItem(connection, orderId, item);
+          if (item.variantId) {
+            const [result] = await connection.query(
+              'UPDATE phone_variants SET stock = stock - ? WHERE id = ? AND stock >= ?',
+              [item.quantity, item.variantId, item.quantity]
+            );
+            if (result.affectedRows !== 1) throw new Error(`Phone configuration sold out: ${item.name}`);
+          } else {
+            await connection.query(
+              'UPDATE products SET stock = stock - ? WHERE id = ?',
+              [item.quantity, item.productId]
+            );
+          }
         }
 
         await connection.commit();
@@ -272,15 +321,31 @@ router.post('/mpesa-callback', async (req, res) => {
           [orderId]
         );
 
-        const [items] = await connection.query(
-          'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
-          [orderId]
-        );
-        for (const item of items) {
-          await connection.query(
-            'UPDATE products SET stock = stock + ? WHERE id = ?',
-            [item.quantity, item.product_id]
+        let items;
+        try {
+          [items] = await connection.query(
+            'SELECT product_id, phone_variant_id, quantity FROM order_items WHERE order_id = ?',
+            [orderId]
           );
+        } catch (error) {
+          if (!isMissingVariantSchema(error)) throw error;
+          [items] = await connection.query(
+            'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
+            [orderId]
+          );
+        }
+        for (const item of items) {
+          if (item.phone_variant_id) {
+            await connection.query(
+              'UPDATE phone_variants SET stock = stock + ? WHERE id = ?',
+              [item.quantity, item.phone_variant_id]
+            );
+          } else {
+            await connection.query(
+              'UPDATE products SET stock = stock + ? WHERE id = ?',
+              [item.quantity, item.product_id]
+            );
+          }
         }
       }
 
@@ -303,14 +368,19 @@ router.post('/mpesa-callback', async (req, res) => {
       const orderId = orderResult.insertId;
 
       for (const item of pendingSession.orderItemsData) {
-        await connection.query(
-          'INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)',
-          [orderId, item.productId, item.quantity, item.unitPrice]
-        );
-        await connection.query(
-          'UPDATE products SET stock = stock - ? WHERE id = ?',
-          [item.quantity, item.productId]
-        );
+        await insertOrderItem(connection, orderId, item);
+        if (item.variantId) {
+          const [result] = await connection.query(
+            'UPDATE phone_variants SET stock = stock - ? WHERE id = ? AND stock >= ?',
+            [item.quantity, item.variantId, item.quantity]
+          );
+          if (result.affectedRows !== 1) throw new Error(`Phone configuration sold out: ${item.name}`);
+        } else {
+          await connection.query(
+            'UPDATE products SET stock = stock - ? WHERE id = ?',
+            [item.quantity, item.productId]
+          );
+        }
       }
 
       pendingCheckoutSessions.delete(MerchantRequestID);

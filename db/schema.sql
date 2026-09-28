@@ -39,6 +39,22 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS phone_variants (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id INT NOT NULL,
+  variant_label VARCHAR(120) NOT NULL,
+  market VARCHAR(80) NOT NULL DEFAULT 'Standard',
+  warranty VARCHAR(120) NOT NULL DEFAULT '',
+  price DECIMAL(10,2) NOT NULL,
+  stock INT NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_phone_variant (product_id, variant_label, market, warranty),
+  INDEX idx_phone_variants_active (product_id, is_active),
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
 -- 4. DIGITAL PRODUCTS (Master Definitions for Game Codes/UC/Diamonds)
 CREATE TABLE IF NOT EXISTS gaming_codes (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -85,10 +101,12 @@ CREATE TABLE IF NOT EXISTS order_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   order_id INT NOT NULL,
   product_id INT NOT NULL,
+  phone_variant_id INT NULL,
   quantity INT NOT NULL DEFAULT 1,
   price_at_purchase DECIMAL(10,2) NOT NULL,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
+  FOREIGN KEY (phone_variant_id) REFERENCES phone_variants(id) ON DELETE RESTRICT
 );
 
 -- 8. DIGITAL CODE PURCHASES LOG (API Webhook tracking for payments)

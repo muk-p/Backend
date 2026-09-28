@@ -6,6 +6,10 @@ const auth = require('../../middleware/auth');
 const { sendOrderEmail } = require('../../utils/mailer');
 const { normalizeMpesaPhone } = require('../../utils/phone');
 const { generateUniqueOrderNumber } = require('../../utils/orderNumber');
+const isMissingVariantSchema = (error) => error.code === 'ER_NO_SUCH_TABLE'
+  || error.code === 'ER_BAD_FIELD_ERROR'
+  || error.errno === 1146
+  || error.errno === 1054;
 
 // GET all orders
 router.get('/orders', auth, async (req, res) => {
@@ -45,13 +49,25 @@ router.get('/order/:identifier', async (req, res) => {
     if (!orders.length) return res.status(404).json({ message: 'Order not found' });
 
     const order = orders[0];
-    const [items] = await pool.query(
-      `SELECT oi.product_id, oi.quantity, oi.price_at_purchase AS unit_price, p.name AS item_name
-       FROM order_items oi
-       LEFT JOIN products p ON p.id = oi.product_id
-       WHERE oi.order_id = ?`,
-      [order.id]
-    );
+    let items;
+    try {
+      [items] = await pool.query(
+        `SELECT oi.product_id, oi.phone_variant_id, pv.variant_label, pv.market, pv.warranty,
+                oi.quantity, oi.price_at_purchase AS unit_price, p.name AS item_name
+         FROM order_items oi
+         LEFT JOIN products p ON p.id = oi.product_id
+         LEFT JOIN phone_variants pv ON pv.id = oi.phone_variant_id
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
+    } catch (error) {
+      if (!isMissingVariantSchema(error)) throw error;
+      [items] = await pool.query(
+        `SELECT oi.product_id, oi.quantity, oi.price_at_purchase AS unit_price, p.name AS item_name
+         FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?`,
+        [order.id]
+      );
+    }
 
     res.json({ order, items });
   } catch (error) {
@@ -86,10 +102,22 @@ router.get('/orders/status/:merchantRequestId', async (req, res) => {
     const order = orders[0];
 
     // 2. Fetch the items for this order so you have the products too
-    const [items] = await pool.query(
-      'SELECT product_id, quantity, price_at_purchase AS unit_price FROM order_items WHERE order_id = ?',
-      [order.id]
-    );
+    let items;
+    try {
+      [items] = await pool.query(
+        `SELECT oi.product_id, oi.phone_variant_id, pv.variant_label, pv.market, pv.warranty,
+                oi.quantity, oi.price_at_purchase AS unit_price
+         FROM order_items oi LEFT JOIN phone_variants pv ON pv.id = oi.phone_variant_id
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
+    } catch (error) {
+      if (!isMissingVariantSchema(error)) throw error;
+      [items] = await pool.query(
+        'SELECT product_id, quantity, price_at_purchase AS unit_price FROM order_items WHERE order_id = ?',
+        [order.id]
+      );
+    }
 
     // 3. Send back the complete order object and items array
     return res.status(200).json({

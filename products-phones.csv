@@ -1,0 +1,45 @@
+﻿slug,name,brand,category,price,old_price,stock,image_url,images,description,features,specs,is_hero
+samsung-galaxy-a06,Galaxy A06,Samsung,Phones,15000,,0,,[],,[],{},0
+samsung-galaxy-a07,Galaxy A07,Samsung,Phones,17500,,0,,[],,[],{},0
+samsung-galaxy-a07s,Galaxy A07s,Samsung,Phones,19500,,0,,[],,[],{},0
+samsung-galaxy-a16,Galaxy A16,Samsung,Phones,21000,,0,,[],,[],{},0
+samsung-galaxy-a17,Galaxy A17,Samsung,Phones,23000,,0,,[],,[],{},0
+samsung-galaxy-a26,Galaxy A26,Samsung,Phones,31200,,0,,[],,[],{},0
+samsung-galaxy-a27,Galaxy A27,Samsung,Phones,33500,,0,,[],,[],{},0
+samsung-galaxy-a36,Galaxy A36,Samsung,Phones,34000,,0,,[],,[],{},0
+samsung-galaxy-a37,Galaxy A37,Samsung,Phones,41000,,0,,[],,[],{},0
+samsung-galaxy-a56,Galaxy A56,Samsung,Phones,44500,,0,,[],,[],{},0
+samsung-galaxy-a57,Galaxy A57,Samsung,Phones,46000,,0,,[],,[],{},0
+samsung-galaxy-f06,Galaxy F06,Samsung,Phones,21600,,0,,[],,[],{},0
+samsung-galaxy-f23,Galaxy F23,Samsung,Phones,31900,,0,,[],,[],{},0
+samsung-galaxy-flip-7,Galaxy Z Flip 7,Samsung,Phones,113000,,0,,[],,[],{},0
+samsung-galaxy-flip-8,Galaxy Z Flip 8,Samsung,Phones,137000,,0,,[],,[],{},0
+samsung-galaxy-fold-7,Galaxy Z Fold 7,Samsung,Phones,170000,,0,,[],,[],{},0
+samsung-galaxy-fold-8-ultra,Galaxy Z Fold 8 Ultra,Samsung,Phones,201000,,0,,[],,[],{},0
+samsung-galaxy-z-fold-8-wide,Galaxy Z Fold 8 Wide,Samsung,Phones,193000,,0,,[],,[],{},0
+samsung-galaxy-m04,Galaxy M04,Samsung,Phones,15200,,0,,[],,[],{},0
+samsung-galaxy-m07,Galaxy M07,Samsung,Phones,18200,,0,,[],,[],{},0
+samsung-galaxy-m17,Galaxy M17,Samsung,Phones,24500,,0,,[],,[],{},0
+samsung-galaxy-m17e,Galaxy M17E,Samsung,Phones,23600,,0,,[],,[],{},0
+samsung-galaxy-m36,Galaxy M36,Samsung,Phones,34500,,0,,[],,[],{},0
+samsung-galaxy-s23-fe,Galaxy S23 FE,Samsung,Phones,60500,,0,,[],,[],{},0
+samsung-galaxy-s24,Galaxy S24,Samsung,Phones,62500,,0,,[],,[],{},0
+samsung-galaxy-s25,Galaxy S25,Samsung,Phones,82000,,0,,[],,[],{},0
+samsung-galaxy-s25-fe,Galaxy S25 FE,Samsung,Phones,75000,,0,,[],,[],{},0
+samsung-galaxy-s25-ultra,Galaxy S25 Ultra,Samsung,Phones,107000,,0,,[],,[],{},0
+samsung-galaxy-s26,Galaxy S26,Samsung,Phones,103000,,0,,[],,[],{},0
+samsung-galaxy-s26-fe,Galaxy S26 FE,Samsung,Phones,88000,,0,,[],,[],{},0
+samsung-galaxy-s26-plus,Galaxy S26+,Samsung,Phones,111000,,0,,[],,[],{},0
+samsung-galaxy-s26-ultra,Galaxy S26 Ultra,Samsung,Phones,124500,,0,,[],,[],{},0
+apple-iphone-16e,iPhone 16e,Apple,Phones,70000,,0,,[],,[],{},0
+apple-iphone-16-plus,iPhone 16 Plus,Apple,Phones,104500,,0,,[],,[],{},0
+apple-iphone-17,iPhone 17,Apple,Phones,128000,,0,,[],,[],{},0
+apple-iphone-17-air,iPhone 17 Air,Apple,Phones,122000,,0,,[],,[],{},0
+apple-iphone-17-pro,iPhone 17 Pro,Apple,Phones,159000,,0,,[],,[],{},0
+apple-iphone-17-pro-max,iPhone 17 Pro Max,Apple,Phones,171000,,0,,[],,[],{},0
+apple-iphone-18-pro,iPhone 18 Pro,Apple,Phones,215000,,0,,[],,[],{},0
+apple-iphone-18-pro-max,iPhone 18 Pro Max,Apple,Phones,258000,,0,,[],,[],{},0
+nothing-phone-3a,Nothing Phone 3A,Nothing,Phones,36000,,0,,[],,[],{},0
+nothing-phone-4a,Nothing Phone 4A,Nothing,Phones,46000,,0,,[],,[],{},0
+nothing-phone-4b,Nothing Phone 4B,Nothing,Phones,49000,,0,,[],,[],{},0
+nothing-phone-4a-pro,Nothing Phone 4A Pro,Nothing,Phones,80000,,0,,[],,[],{},0

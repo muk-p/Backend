@@ -7,13 +7,16 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "init-db": "node scripts/init-db.js",
-    "migrate:product-images": "node scripts/migrate-product-images.js"
+    "migrate:product-images": "node scripts/migrate-product-images.js",
+    "migrate:phone-variants": "node scripts/migrate-phone-variants.js",
+    "import:phones": "node scripts/import-phone-catalog.js"
   },
   "dependencies": {
     "axios": "^1.16.1",
     "bcrypt": "^5.1.1",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
+    "csv-parse": "^7.0.3",
     "dotenv": "^16.3.1",
     "express": "^4.22.3",
     "express-rate-limit": "^7.1.5",

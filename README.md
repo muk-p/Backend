@@ -23,6 +23,26 @@ Backend starter project for the gaming gadgets store.
    npm run dev
    ```
 
+## Phone variants rollout
+
+Phone models are stored once in `products`; storage/configuration, market, warranty, price, and stock are stored in `phone_variants`. Order items keep the selected variant and purchase-time price. The phone CSV import initializes variant stock to `0` because the source price list does not specify inventory.
+
+Do not run schema or import writes against the active Railway database during review. First point `Backend/.env` at an isolated staging database whose `DB_NAME` contains `staging`. Both commands default to a no-write validation run:
+
+```bash
+npm run migrate:phone-variants
+npm run import:phones
+```
+
+After reviewing those results, apply the migration and import to staging only, replacing the confirmation value with that exact staging database name:
+
+```bash
+npm run migrate:phone-variants -- --execute --confirm-staging=<staging-database-name>
+npm run import:phones -- --execute --confirm-staging=<staging-database-name>
+```
+
+Set the variant stock in staging before testing checkout. The importer is repeatable and preserves existing image, description, feature, and spec content when the CSV has blank placeholders. Do not deploy the phone-enabled frontend until the database migration has been applied.
+
 ## Available APIs
 
 ### Shopping

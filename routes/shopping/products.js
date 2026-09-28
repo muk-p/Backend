@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../../db');
+const fs = require('fs');
 const auth = require('../../middleware/auth');
 const multer = require('multer');
 const path = require('path');
@@ -63,6 +64,8 @@ const parseJsonValue = (value, fallback) => {
   }
 };
 
+const isMissingPhoneVariantsTable = (error) => error.code === 'ER_NO_SUCH_TABLE' || error.errno === 1146;
+
 const requireAdminAuth = (req, res, next) => {
   auth(req, res, () => {
     if (req.user?.role !== 'manager') {
@@ -79,26 +82,45 @@ router.get('/', productLimiter, async (req, res) => {
     res.set('Cache-Control', 'public, max-age=600, s-maxage=1200, stale-while-revalidate=60');
     
     // Light query: Only essential catalog fields
-    const [rows] = await pool.query(
-      `SELECT slug, name, brand, category, price, stock, image_url 
-       FROM products 
-       ORDER BY 
-         CASE 
-           WHEN UPPER(category) = 'CONSOLE' THEN 1
-           WHEN UPPER(category) = 'ACCESSORIES' THEN 2
-           WHEN UPPER(category) = 'PHONES' THEN 3
-           WHEN UPPER(category) = 'TVS' THEN 4
-           WHEN UPPER(category) = 'DIGITAL' THEN 5
-           WHEN UPPER(category) = 'GAMES' THEN 6
-           WHEN UPPER(category) = 'PRE-OWNED' THEN 7
-           WHEN UPPER(category) = 'VR GEAR' THEN 8
-           WHEN UPPER(category) = 'MERCH' THEN 9
-           ELSE 10
-         END ASC,
-         slug ASC
-       LIMIT ?`,
-      [limit]
-    );
+    let rows;
+    try {
+      [rows] = await pool.query(
+        `SELECT p.id, p.slug, p.name, p.brand, p.category,
+                COALESCE(pv.variant_price, p.price) AS price,
+                CASE WHEN pv.product_id IS NULL THEN p.stock ELSE pv.variant_stock END AS stock,
+                p.image_url
+         FROM products p
+         LEFT JOIN (
+           SELECT product_id, MIN(price) AS variant_price, SUM(stock) AS variant_stock
+           FROM phone_variants WHERE is_active = 1 GROUP BY product_id
+         ) pv ON pv.product_id = p.id
+         ORDER BY
+           CASE
+             WHEN UPPER(p.category) = 'CONSOLE' THEN 1
+             WHEN UPPER(p.category) = 'ACCESSORIES' THEN 2
+             WHEN UPPER(p.category) = 'PHONES' THEN 3
+             WHEN UPPER(p.category) = 'TVS' THEN 4
+             WHEN UPPER(p.category) = 'DIGITAL' THEN 5
+             WHEN UPPER(p.category) = 'GAMES' THEN 6
+             WHEN UPPER(p.category) = 'PRE-OWNED' THEN 7
+             WHEN UPPER(p.category) = 'VR GEAR' THEN 8
+             WHEN UPPER(p.category) = 'MERCH' THEN 9
+             ELSE 10
+           END ASC,
+           p.slug ASC
+         LIMIT ?`,
+        [limit]
+      );
+    } catch (error) {
+      if (!isMissingPhoneVariantsTable(error)) throw error;
+      [rows] = await pool.query(
+        `SELECT id, slug, name, brand, category, price, stock, image_url
+         FROM products
+         ORDER BY category ASC, slug ASC
+         LIMIT ?`,
+        [limit]
+      );
+    }
 
     const categoryMap = new Map();
     for (const p of rows) {
@@ -207,17 +229,90 @@ router.get('/sitemap', productLimiter, async (req, res) => {
   }
 });
 
+router.get('/preview/phones', (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.PHONE_CATALOG_PREVIEW !== 'true') {
+    return res.sendStatus(404);
+  }
+
+  try {
+    const readCsv = (fileName) => {
+      const filePath = path.join(__dirname, '../../', fileName);
+      const [headerLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+      const headers = headerLine.split(',');
+
+      return lines.filter(Boolean).map((line) => {
+        const values = line.split(',');
+        if (values.length !== headers.length) throw new Error(`Invalid CSV row in ${fileName}`);
+        return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+      });
+    };
+
+    const variantsBySlug = new Map();
+    for (const variant of readCsv('phone-variants.csv')) {
+      const variants = variantsBySlug.get(variant.product_slug) || [];
+      variants.push({
+        label: variant.variant_label,
+        price: Number(variant.price_ksh),
+        market: variant.market,
+        warranty: variant.warranty,
+      });
+      variantsBySlug.set(variant.product_slug, variants);
+    }
+
+    const products = readCsv('products-phones.csv').map((product) => ({
+      slug: product.slug,
+      name: product.name,
+      brand: product.brand,
+      category: product.category,
+      price: Number(product.price),
+      old_price: product.old_price ? Number(product.old_price) : null,
+      stock: Number(product.stock) || 0,
+      image_url: product.image_url || null,
+      images: JSON.parse(product.images || '[]'),
+      description: product.description || '',
+      features: JSON.parse(product.features || '[]'),
+      specs: JSON.parse(product.specs || '{}'),
+      is_hero: product.is_hero === '1',
+      variants: variantsBySlug.get(product.slug) || [],
+    }));
+
+    res.set('Cache-Control', 'no-store').json({ products });
+  } catch (error) {
+    console.error('Phone catalog preview failed:', error.message);
+    res.status(500).json({ message: 'Unable to load local phone preview data' });
+  }
+});
+
 // 2. GET SINGLE PRODUCT (Switched from :id parameter to :slug)
 router.get('/:slug', productLimiter, async (req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=3600');
-    const [rows] = await pool.query(
-      `SELECT id, slug, name, brand, category, price, old_price, stock, image_url, images,
-              description, features, specs, is_hero
-       FROM products
-       WHERE slug = ?`,
-      [req.params.slug]
-    );
+    let rows;
+    let variantsTableAvailable = true;
+    try {
+      [rows] = await pool.query(
+        `SELECT p.id, p.slug, p.name, p.brand, p.category,
+                COALESCE(pv.variant_price, p.price) AS price, p.old_price,
+                CASE WHEN pv.product_id IS NULL THEN p.stock ELSE pv.variant_stock END AS stock,
+                p.image_url, p.images, p.description, p.features, p.specs, p.is_hero
+         FROM products p
+         LEFT JOIN (
+           SELECT product_id, MIN(price) AS variant_price, SUM(stock) AS variant_stock
+           FROM phone_variants WHERE is_active = 1 GROUP BY product_id
+         ) pv ON pv.product_id = p.id
+         WHERE p.slug = ?`,
+        [req.params.slug]
+      );
+    } catch (error) {
+      if (!isMissingPhoneVariantsTable(error)) throw error;
+      variantsTableAvailable = false;
+      [rows] = await pool.query(
+        `SELECT id, slug, name, brand, category, price, old_price, stock, image_url, images,
+                description, features, specs, is_hero
+         FROM products WHERE slug = ?`,
+        [req.params.slug]
+      );
+    }
     
     if (!rows.length) return res.status(404).json({ message: 'Product not found' });
     
@@ -229,6 +324,20 @@ router.get('/:slug', productLimiter, async (req, res) => {
       features: typeof p.features === 'string' ? JSON.parse(p.features || '[]') : (p.features || []),
       specs: typeof p.specs === 'string' ? JSON.parse(p.specs || '{}') : (p.specs || {})
     };
+
+    if (variantsTableAvailable && String(product.category || '').toLowerCase() === 'phones') {
+      const [variants] = await pool.query(
+        `SELECT id, variant_label, market, warranty, price, stock
+         FROM phone_variants WHERE product_id = ? AND is_active = 1
+         ORDER BY price ASC, variant_label ASC`,
+        [product.id]
+      );
+      product.variants = variants;
+      if (variants.length) {
+        product.price = Math.min(...variants.map((variant) => Number(variant.price)));
+        product.stock = variants.reduce((total, variant) => total + Number(variant.stock), 0);
+      }
+    }
     
     res.json({ product });
   } catch (error) {
