@@ -4,19 +4,19 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const args = process.argv.slice(2);
 const execute = args.includes('--execute');
-const confirmedDatabase = args.find((arg) => arg.startsWith('--confirm-staging='))?.split('=')[1];
+const confirmedDatabase = args.find((arg) => arg.startsWith('--confirm-database='))?.split('=')[1];
 const databaseName = process.env.DB_NAME || 'gadgetfinds';
 
 if (!execute) {
   console.log(`Dry run only. Target database name: ${databaseName}`);
   console.log('No database connection or changes made.');
-  console.log('For staging only, configure a staging .env whose DB_NAME contains "staging", then pass that exact name:');
-  console.log('npm run migrate:phone-variants -- --execute --confirm-staging=<staging-database-name>');
+  console.log('To apply, pass --execute and confirm the exact DB_NAME from Backend/.env:');
+  console.log('npm run migrate:phone-variants -- --execute --confirm-database=<exact-database-name>');
   process.exit(0);
 }
 
-if (!databaseName.toLowerCase().includes('staging') || confirmedDatabase !== databaseName) {
-  console.error('Refusing migration: DB_NAME must include "staging" and must be confirmed exactly.');
+if (confirmedDatabase !== databaseName) {
+  console.error('Refusing migration: --confirm-database must exactly match DB_NAME.');
   process.exit(1);
 }
 

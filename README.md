@@ -35,21 +35,21 @@ npm run normalize:phones
 
 The normalizer preserves any stock counts already entered and can be rerun safely.
 
-Do not run schema or import writes against the active Railway database during review. First point `Backend/.env` at an isolated staging database whose `DB_NAME` contains `staging`. Both commands default to a no-write validation run:
+Both commands default to a no-write validation run:
 
 ```bash
 npm run migrate:phone-variants
 npm run import:phones
 ```
 
-After reviewing those results, apply the migration and import to staging only, replacing the confirmation value with that exact staging database name:
+After reviewing the dry run, you can target either staging or the database currently configured in `Backend/.env`. Both write commands require `--execute` and an exact `DB_NAME` confirmation. For the current Railway database named `railway`:
 
 ```bash
-npm run migrate:phone-variants -- --execute --confirm-staging=<staging-database-name>
-npm run import:phones -- --execute --confirm-staging=<staging-database-name>
+npm run migrate:phone-variants -- --execute --confirm-database=railway
+npm run import:phones -- --execute --confirm-database=railway
 ```
 
-Set the variant stock in staging before testing checkout. The importer is repeatable, imports stock from the CSV for new variants, and preserves manually managed stock plus existing image, description, feature, and spec content on repeat imports. Do not deploy the phone-enabled frontend until the database migration has been applied.
+For production, take a database backup first and run the migration before the import. The importer is repeatable, imports stock from the CSV for new variants, and preserves manually managed stock plus existing image, description, feature, and spec content on repeat imports. Variant stock is zero unless set in the CSV before first import. Do not deploy the phone-enabled frontend until the database migration has been applied.
 
 ## Internal phone preview
 

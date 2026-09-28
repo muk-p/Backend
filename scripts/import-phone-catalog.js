@@ -6,7 +6,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const args = process.argv.slice(2);
 const execute = args.includes('--execute');
-const confirmedDatabase = args.find((arg) => arg.startsWith('--confirm-staging='))?.split('=')[1];
+const confirmedDatabase = args.find((arg) => arg.startsWith('--confirm-database='))?.split('=')[1];
 const databaseName = process.env.DB_NAME || 'gadgetfinds';
 const backendRoot = path.resolve(__dirname, '..');
 
@@ -74,13 +74,13 @@ async function importCatalog() {
   if (!execute) {
     console.log(`Dry run only. Target database name: ${databaseName}`);
     console.log('No database connection or changes made.');
-    console.log('For staging only, configure a staging .env whose DB_NAME contains "staging", then pass that exact name:');
-    console.log('npm run import:phones -- --execute --confirm-staging=<staging-database-name>');
+    console.log('To apply, pass --execute and confirm the exact DB_NAME from Backend/.env:');
+    console.log('npm run import:phones -- --execute --confirm-database=<exact-database-name>');
     return;
   }
 
-  if (!databaseName.toLowerCase().includes('staging') || confirmedDatabase !== databaseName) {
-    throw new Error('Refusing import: DB_NAME must include "staging" and must be confirmed exactly.');
+  if (confirmedDatabase !== databaseName) {
+    throw new Error('Refusing import: --confirm-database must exactly match DB_NAME.');
   }
 
   const connection = await mysql.createConnection({
