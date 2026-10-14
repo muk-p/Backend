@@ -60,6 +60,7 @@ The `/preview/phones` page is restricted to manager sessions. Its API endpoint v
 ### Shopping
 - `POST /api/auth/register` - create a new administrator account
 - `POST /api/auth/login` - administrator login
+- `POST /api/auth/demo-login` - issue a one-hour, read-only manager demo token
 - `POST /api/auth/buyer/register` - create a new buyer account
 - `POST /api/auth/buyer/login` - buyer login
 - `GET /api/products` - list products (each product may include `image_url`)
@@ -104,4 +105,4 @@ The `/preview/phones` page is restricted to manager sessions. Its API endpoint v
 - Use `ORDER_EMAIL` for new order notifications.
 - Managers are administrators with full access to manage products, orders, and gaming codes.
 - Buyers can register and login to access personalized features.
-
+- Demo manager tokens can read manager dashboards and API data, but requests using the token are forbidden from changing state (`POST`, `PUT`, `PATCH`, and `DELETE`).

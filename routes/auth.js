@@ -71,6 +71,19 @@ router.post(
   }
 );
 
+router.post('/demo-login', authLimiter, (req, res) => {
+  const user = {
+    id: 'demo-manager',
+    email: 'demo@gadgetfinds.com',
+    name: 'Demo Manager',
+    role: 'manager',
+    isDemo: true
+  };
+
+  const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' });
+  res.json({ token, user });
+});
+
 // 2. MANAGER REGISTRATION (Requires Auth - only existing managers can create others)
 router.post(
   '/register',
